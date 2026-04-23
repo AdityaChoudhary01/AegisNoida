@@ -148,7 +148,7 @@ export default function Sidebar({ activeView, setActiveView, isOpen = false, onC
                   </h3>
                   <div className="flex gap-2">
                      <button 
-                       onClick={clearNotifications}
+                       onClick={async () => await clearNotifications()}
                        className="p-2 hover:bg-rose-500/10 rounded-xl transition-colors cursor-pointer text-[10px] font-black uppercase tracking-widest text-rose-500 border border-rose-500/20"
                      >
                        Purge

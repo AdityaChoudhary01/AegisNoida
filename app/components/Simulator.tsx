@@ -68,7 +68,7 @@ export default function Simulator() {
                               </p>
                            </div>
                            <button 
-                             onClick={() => resolveSOS(alert.id)}
+                             onClick={async () => await resolveSOS(alert.id)}
                              className="px-6 py-3 bg-emerald-500/10 hover:bg-emerald-500 text-emerald-500 hover:text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all cursor-pointer flex items-center gap-2"
                            >
                               <CheckCircle className="w-4 h-4" /> Resolve

@@ -17,37 +17,33 @@ export default function LoginPage({ isModal = false }: { isModal?: boolean }) {
   const [status, setStatus] = useState<"idle" | "authenticating" | "verifying">("idle");
   const [error, setError] = useState("");
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setStatus("authenticating");
     
-    setTimeout(() => {
-      let result;
-      if (!isLogin) {
-        result = signup({ 
-          email, 
-          password,
-          name: name || email.split("@")[0], 
-          role, 
-          age: Number(age), 
-          mobileNumber: mobile, 
-          beltNumber: role === "Police" ? beltNumber : undefined 
-        });
+    let result;
+    if (!isLogin) {
+      result = await signup({ 
+        email, 
+        password,
+        name: name || email.split("@")[0], 
+        role, 
+        age: Number(age), 
+        mobileNumber: mobile, 
+        beltNumber: role === "Police" ? beltNumber : undefined 
+      });
+    } else {
+      if (role === "Police") {
+        setStatus("verifying");
+        // Simulated extra delay for police verification
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        result = await login(email, password, role, beltNumber);
       } else {
-        if (role === "Police") {
-          setStatus("verifying");
-          setTimeout(() => {
-            result = login(email, password, role, beltNumber);
-            handleResult(result);
-          }, 2000);
-          return;
-        } else {
-          result = login(email, password, role);
-        }
+        result = await login(email, password, role);
       }
-      handleResult(result);
-    }, 1500);
+    }
+    handleResult(result);
   };
 
   const handleResult = (result: { success: boolean; message: string }) => {

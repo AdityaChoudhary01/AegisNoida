@@ -4,7 +4,9 @@ const NotificationSchema = new mongoose.Schema({
   title: { type: String, required: true },
   message: { type: String, required: true },
   type: { type: String, enum: ["General", "Alert", "Emergency"], default: "General" },
-  senderId: { type: mongoose.Schema.Types.ObjectId, ref: "AegisUser", required: true },
+  isSOS: { type: Boolean, default: false },
+  sosId: { type: String, required: false },
+  time: { type: String, required: true },
   timestamp: { type: Date, default: Date.now }
 });
 

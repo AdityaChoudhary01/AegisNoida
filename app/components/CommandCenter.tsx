@@ -96,15 +96,20 @@ export default function CommandCenter() {
     }, 1500);
   };
 
-  const handleSOS = () => {
+  const handleSOS = async () => {
     setSosActive(true);
+    
+    const triggerWithCoords = async (lat: number, lng: number) => {
+      await triggerSOS(lat, lng, user);
+    };
+
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        (pos) => triggerSOS(pos.coords.latitude, pos.coords.longitude, user),
-        () => triggerSOS(28.4667, 77.5070, user)
+        async (pos) => await triggerWithCoords(pos.coords.latitude, pos.coords.longitude),
+        async () => await triggerWithCoords(28.4667, 77.5070)
       );
     } else {
-      triggerSOS(28.4667, 77.5070, user);
+      await triggerWithCoords(28.4667, 77.5070);
     }
     setTimeout(() => setSosActive(false), 5000);
   };

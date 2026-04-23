@@ -1,6 +1,7 @@
 "use client";
-import { createContext, useContext, useState, useEffect } from "react";
+import { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { MASTER_DATASET, SectorRecord } from "../data/dataset";
+import axios from "axios";
 
 export interface SOSAlert {
   id: string;
@@ -32,12 +33,13 @@ interface PersistenceContextType {
   activeView: string;
   setActiveSOS: (sos: SOSAlert | null) => void;
   setActiveView: (view: string) => void;
-  triggerSOS: (lat: number, lng: number, user: { name?: string, email?: string, mobileNumber?: string, age?: number, role?: string } | null) => void;
-  resolveSOS: (id: string) => void;
-  broadcastAlert: (title: string, message: string, type: "General" | "Alert") => void;
+  triggerSOS: (lat: number, lng: number, user: { name?: string, email?: string, mobileNumber?: string, age?: number, role?: string } | null) => Promise<void>;
+  resolveSOS: (id: string) => Promise<void>;
+  broadcastAlert: (title: string, message: string, type: "General" | "Alert") => Promise<void>;
   handleSOSAction: (sosId: string) => void;
   handleResolve: (id: string) => void;
-  clearNotifications: () => void;
+  clearNotifications: () => Promise<void>;
+  refreshData: () => Promise<void>;
 }
 
 const PersistenceContext = createContext<PersistenceContextType | undefined>(undefined);
@@ -49,86 +51,88 @@ export function PersistenceProvider({ children }: { children: React.ReactNode })
   const [activeSOS, setActiveSOS] = useState<SOSAlert | null>(null);
   const [activeView, setActiveView] = useState("dashboard");
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      const savedSOS = localStorage.getItem("aegis_sos");
-      const savedNotifs = localStorage.getItem("aegis_notifs");
-      
-      const sos = savedSOS ? JSON.parse(savedSOS) : [];
-      const savedNotifsList = savedNotifs ? JSON.parse(savedNotifs) : [];
+  const refreshData = useCallback(async () => {
+    try {
+      const [sosRes, notifRes] = await Promise.all([
+        axios.get('/api/sos'),
+        axios.get('/api/notifications')
+      ]);
 
-      // SANITIZATION: Remove broken or old notifications from previous versions
-      const notifs = savedNotifsList.filter((n: CityNotification) => n.sosId || !n.isSOS);
-      
-      setSosAlerts(sos);
-      setCityNotifications(notifs);
-    }, 0);
-    return () => clearTimeout(timer);
+      if (sosRes.data.success) {
+        setSosAlerts(sosRes.data.sosAlerts);
+      }
+      if (notifRes.data.success) {
+        setCityNotifications(notifRes.data.notifications);
+      }
+    } catch (error) {
+      console.error("Failed to refresh persistence data:", error);
+    }
   }, []);
 
-  const triggerSOS = (lat: number, lng: number, user: { name?: string, email?: string, mobileNumber?: string, age?: number, role?: string } | null) => {
-    // ROBUST FALLBACK: If user is Admin but session is old, force the correct contact details
-    let mobile = user?.mobileNumber;
-    let age = user?.age;
+  useEffect(() => {
+    const initializeData = async () => {
+      await refreshData();
+    };
+    initializeData();
 
-    if (user?.role === "Admin" && !mobile) {
-       mobile = "+91 9999-000-001";
-       age = 34;
+    // 5-second polling for real-time synchronization across machines
+    const interval = setInterval(refreshData, 5000);
+    return () => clearInterval(interval);
+  }, [refreshData]);
+
+  const triggerSOS = async (lat: number, lng: number, user: { name?: string, email?: string, mobileNumber?: string, age?: number, role?: string } | null) => {
+    try {
+      const res = await axios.post('/api/sos', { lat, lng, user });
+      if (res.data.success) {
+        const newSOS = res.data.sos;
+        
+        // Also broadcast an emergency notification
+        await axios.post('/api/notifications', {
+          title: "CRITICAL: SOS BROADCAST",
+          message: `Emergency signal from ${newSOS.userName}. [M: ${newSOS.userMobile}] - Coordinates: ${lat.toFixed(4)}, ${lng.toFixed(4)}. Respond immediately.`,
+          type: "Emergency",
+          isSOS: true,
+          sosId: newSOS.id
+        });
+
+        await refreshData();
+      }
+    } catch (error) {
+      console.error("Failed to trigger SOS:", error);
     }
-
-    const newAlert: SOSAlert = {
-      id: Math.random().toString(36).substr(2, 9),
-      lat,
-      lng,
-      userName: user?.name || "Anonymous User",
-      userEmail: user?.email || "N/A",
-      userMobile: mobile || "91-XXXXXXXXXX",
-      userAge: age || 25,
-      timestamp: new Date().toLocaleTimeString(),
-      status: "Active"
-    };
-    
-    const updatedSOS = [newAlert, ...sosAlerts];
-    setSosAlerts(updatedSOS);
-    localStorage.setItem("aegis_sos", JSON.stringify(updatedSOS));
-
-    const newNotif: CityNotification = {
-      id: "sos-" + newAlert.id,
-      sosId: newAlert.id,
-      title: "CRITICAL: SOS BROADCAST",
-      message: `Emergency signal from ${newAlert.userName}. [M: ${newAlert.userMobile}] - Coordinates: ${lat.toFixed(4)}, ${lng.toFixed(4)}. Respond immediately.`,
-      type: "Emergency",
-      time: newAlert.timestamp,
-      isSOS: true
-    };
-    const updatedNotifs = [newNotif, ...cityNotifications];
-    setCityNotifications(updatedNotifs);
-    localStorage.setItem("aegis_notifs", JSON.stringify(updatedNotifs));
   };
 
-  const resolveSOS = (id: string) => {
-    const updated = sosAlerts.map(a => a.id === id ? { ...a, status: "Resolved" as const } : a);
-    setSosAlerts(updated);
-    localStorage.setItem("aegis_sos", JSON.stringify(updated));
+  const resolveSOS = async (id: string) => {
+    try {
+      const res = await axios.patch('/api/sos', { id });
+      if (res.data.success) {
+        await refreshData();
+      }
+    } catch (error) {
+      console.error("Failed to resolve SOS:", error);
+    }
   };
 
-  const clearNotifications = () => {
-    setCityNotifications([]);
-    localStorage.removeItem("aegis_notifs");
+  const clearNotifications = async () => {
+    try {
+      const res = await axios.delete('/api/notifications');
+      if (res.data.success) {
+        setCityNotifications([]);
+      }
+    } catch (error) {
+      console.error("Failed to clear notifications:", error);
+    }
   };
 
-  const broadcastAlert = (title: string, message: string, type: "General" | "Alert") => {
-    const newNotif: CityNotification = {
-      id: Math.random().toString(36).substr(2, 9),
-      title,
-      message,
-      type,
-      time: new Date().toLocaleTimeString(),
-      isSOS: false
-    };
-    const updated = [newNotif, ...cityNotifications];
-    setCityNotifications(updated);
-    localStorage.setItem("aegis_notifs", JSON.stringify(updated));
+  const broadcastAlert = async (title: string, message: string, type: "General" | "Alert") => {
+    try {
+      const res = await axios.post('/api/notifications', { title, message, type });
+      if (res.data.success) {
+        await refreshData();
+      }
+    } catch (error) {
+      console.error("Failed to broadcast alert:", error);
+    }
   };
 
   const handleSOSAction = (sosId: string) => {
@@ -139,8 +143,8 @@ export function PersistenceProvider({ children }: { children: React.ReactNode })
     }
   };
 
-  const handleResolve = (id: string) => {
-    resolveSOS(id);
+  const handleResolve = async (id: string) => {
+    await resolveSOS(id);
     setActiveSOS(null);
     setActiveView("dashboard");
   };
@@ -159,7 +163,8 @@ export function PersistenceProvider({ children }: { children: React.ReactNode })
       broadcastAlert, 
       handleSOSAction, 
       handleResolve,
-      clearNotifications
+      clearNotifications,
+      refreshData
     }}>
       {children}
     </PersistenceContext.Provider>
